@@ -29,6 +29,8 @@ export default function SystemSettingsScreen() {
     getUserPermissions,
     showAlert,
     showConfirm,
+    triggerAlarmTest,
+    stopAlarm,
     currentUser,
   } = useApp();
 
@@ -112,8 +114,13 @@ export default function SystemSettingsScreen() {
   };
 
   const handleTestSound = (type: 'KITCHEN' | 'READY') => {
+    triggerAlarmTest(type, formData);
     const soundTitle = type === 'KITCHEN' ? formData.kitchenSoundType : formData.readySoundType;
-    showAlert('Nghe thử âm thanh', `Đang phát âm thanh chuông báo: [${soundTitle}]`, 'info');
+    showAlert(
+      '🔊 Đang Phát Âm Thanh Báo Động',
+      `Đang phát chuông [${soundTitle.toUpperCase()}] kèm rung thiết bị & bật màn hình sáng!`,
+      'info'
+    );
   };
 
   // If user does not have permission, show access denied view!
@@ -669,12 +676,14 @@ export default function SystemSettingsScreen() {
 
                   <View style={styles.soundConfigRow}>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.inputLabel}>Kiểu âm thanh chuông báo</Text>
+                      <Text style={styles.inputLabel}>Kiểu âm thanh chuông báo Bếp</Text>
                       <View style={styles.chipsRow}>
                         {[
                           { id: 'kitchen_bell', label: 'Ting-Ting' },
                           { id: 'dingdong', label: 'Ding-Dong' },
                           { id: 'beep_alert', label: 'Beep Còi' },
+                          { id: 'urgent_alarm', label: 'Báo Động Gấp' },
+                          { id: 'siren', label: 'Còi Cảnh Báo' },
                           { id: 'fanfare', label: 'Kèn Vui' },
                         ].map((s) => (
                           <TouchableOpacity
@@ -689,19 +698,44 @@ export default function SystemSettingsScreen() {
                       </View>
                     </View>
 
-                    <TouchableOpacity
-                      style={styles.btnListenTest}
-                      onPress={() => handleTestSound('KITCHEN')}>
-                      <FontAwesome5 name="play" size={11} color="#ffffff" style={{ marginRight: 5 }} />
-                      <Text style={styles.btnListenTestText}>Nghe Thử</Text>
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                      <TouchableOpacity
+                        style={styles.btnListenTest}
+                        onPress={() => handleTestSound('KITCHEN')}>
+                        <FontAwesome5 name="play" size={11} color="#ffffff" style={{ marginRight: 5 }} />
+                        <Text style={styles.btnListenTestText}>Nghe Thử</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.btnListenTest, { backgroundColor: '#ef4444' }]}
+                        onPress={stopAlarm}>
+                        <FontAwesome5 name="stop" size={11} color="#ffffff" style={{ marginRight: 5 }} />
+                        <Text style={styles.btnListenTestText}>Dừng</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  <View style={{ marginTop: 10 }}>
+                    <Text style={styles.inputLabel}>Âm lượng phát: {formData.kitchenSoundVolume ?? 100}%</Text>
+                    <View style={styles.chipsRow}>
+                      {[25, 50, 75, 100].map((vol) => (
+                        <TouchableOpacity
+                          key={vol}
+                          style={[styles.smallPill, (formData.kitchenSoundVolume ?? 100) === vol && styles.smallPillActive]}
+                          onPress={() => setFormData((prev) => ({ ...prev, kitchenSoundVolume: vol }))}>
+                          <Text style={[styles.smallPillText, (formData.kitchenSoundVolume ?? 100) === vol && styles.smallPillTextActive]}>
+                            {vol}%
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
                   </View>
 
                   <View style={styles.formRowTwoCol}>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.inputLabel}>Số lần kêu: {formData.kitchenRepeatCount} lần</Text>
+                      <Text style={styles.inputLabel}>Số lần lặp lại: {formData.kitchenRepeatCount} lần</Text>
                       <View style={styles.chipsRow}>
-                        {[1, 2, 3, 5].map((cnt) => (
+                        {[1, 2, 3, 5, 8, 10].map((cnt) => (
                           <TouchableOpacity
                             key={cnt}
                             style={[styles.smallPill, formData.kitchenRepeatCount === cnt && styles.smallPillActive]}
@@ -715,9 +749,9 @@ export default function SystemSettingsScreen() {
                     </View>
 
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.inputLabel}>Khoảng cách: {formData.kitchenRepeatInterval} giây</Text>
+                      <Text style={styles.inputLabel}>Khoảng cách lặp: {formData.kitchenRepeatInterval} giây</Text>
                       <View style={styles.chipsRow}>
-                        {[1, 2, 3].map((sec) => (
+                        {[1, 2, 3, 5].map((sec) => (
                           <TouchableOpacity
                             key={sec}
                             style={[styles.smallPill, formData.kitchenRepeatInterval === sec && styles.smallPillActive]}

@@ -23,6 +23,7 @@ import {
   INITIAL_SYSTEM_SETTINGS,
 } from '@/constants/initialData';
 import { CustomDialog, DialogOptions } from '@/components/CustomDialog';
+import { playOrderAlarm, stopOrderAlarm } from '@/utils/alarmHelper';
 
 export interface DeliveryContextState {
   platform: string;
@@ -144,6 +145,10 @@ interface AppContextType {
     cancelText?: string,
     type?: 'danger' | 'warning' | 'success' | 'info'
   ) => void;
+
+  // Alarm & Sound Helpers
+  triggerAlarmTest: (type?: 'KITCHEN' | 'READY', customConfig?: Partial<SystemSettings>) => void;
+  stopAlarm: () => void;
 
   // Counters
   kitchenPendingCount: number;
@@ -339,6 +344,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [serverUrl]);
 
+  const triggerAlarmTest = useCallback(
+    (type: 'KITCHEN' | 'READY' = 'KITCHEN', customConfig?: Partial<SystemSettings>) => {
+      const cfg = customConfig ? { ...systemSettings, ...customConfig } : systemSettings;
+      const soundType = type === 'KITCHEN' ? cfg.kitchenSoundType : cfg.readySoundType;
+      const volume = type === 'KITCHEN' ? cfg.kitchenSoundVolume : cfg.readySoundVolume;
+      const repeatCount = type === 'KITCHEN' ? cfg.kitchenRepeatCount : cfg.readyRepeatCount;
+      const repeatInterval = type === 'KITCHEN' ? cfg.kitchenRepeatInterval : cfg.readyRepeatInterval;
+
+      playOrderAlarm({
+        soundType,
+        volume,
+        repeatCount,
+        repeatInterval,
+        enableVibration: true,
+        enableWakeScreen: true,
+      });
+    },
+    [systemSettings]
+  );
+
+  const stopAlarm = useCallback(() => {
+    stopOrderAlarm();
+  }, []);
+
   // Socket.IO realtime connection
   useEffect(() => {
     if (!serverUrl) return;
@@ -356,8 +385,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
 
       socket.on('table_updated', () => syncFromServer());
-      socket.on('kitchen_new_order', () => syncFromServer());
-      socket.on('order_status_updated', () => syncFromServer());
+
+      socket.on('kitchen_new_order', (orderData: any) => {
+        syncFromServer();
+        if (systemSettings.kitchenSoundEnabled !== false && systemSettings.soundAlertsEnabled !== false) {
+          playOrderAlarm({
+            soundType: systemSettings.kitchenSoundType || 'kitchen_bell',
+            volume: systemSettings.kitchenSoundVolume ?? 100,
+            repeatCount: systemSettings.kitchenRepeatCount ?? 3,
+            repeatInterval: systemSettings.kitchenRepeatInterval ?? 2,
+            enableVibration: true,
+            enableWakeScreen: true,
+          });
+        }
+      });
+
+      socket.on('waiter_order_ready', () => {
+        syncFromServer();
+        if (systemSettings.readySoundEnabled !== false && systemSettings.soundAlertsEnabled !== false) {
+          playOrderAlarm({
+            soundType: systemSettings.readySoundType || 'dingdong',
+            volume: systemSettings.readySoundVolume ?? 100,
+            repeatCount: systemSettings.readyRepeatCount ?? 5,
+            repeatInterval: systemSettings.readyRepeatInterval ?? 1,
+            enableVibration: true,
+            enableWakeScreen: true,
+          });
+        }
+      });
+
+      socket.on('order_status_updated', (data: any) => {
+        syncFromServer();
+        if (data && (data.Status === 'READY' || data.status === 'READY')) {
+          if (systemSettings.readySoundEnabled !== false && systemSettings.soundAlertsEnabled !== false) {
+            playOrderAlarm({
+              soundType: systemSettings.readySoundType || 'dingdong',
+              volume: systemSettings.readySoundVolume ?? 100,
+              repeatCount: systemSettings.readyRepeatCount ?? 5,
+              repeatInterval: systemSettings.readyRepeatInterval ?? 1,
+              enableVibration: true,
+              enableWakeScreen: true,
+            });
+          }
+        }
+      });
+
       socket.on('order_counts_updated', () => syncFromServer());
     } catch {
       setIsConnected(false);
@@ -366,7 +438,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => {
       if (socket) socket.disconnect();
     };
-  }, [serverUrl, syncFromServer]);
+  }, [serverUrl, syncFromServer, systemSettings]);
 
   // Cart operations
   const addToCart = useCallback(
@@ -1108,6 +1180,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateUserPermissions,
         showAlert,
         showConfirm,
+        triggerAlarmTest,
+        stopAlarm,
         kitchenPendingCount,
         readyOrdersCount,
         cartTotalAmount,
