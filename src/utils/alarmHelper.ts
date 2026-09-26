@@ -1,6 +1,6 @@
 import { Platform, Vibration } from 'react-native';
 
-export type SoundType = 'kitchen_bell' | 'dingdong' | 'beep_alert' | 'urgent_alarm' | 'fanfare' | 'siren';
+export type SoundType = 'kitchen_bell' | 'dingdong' | 'beep_alert' | 'urgent_alarm' | 'fanfare' | 'siren' | 'custom';
 
 export interface AlarmConfig {
   soundType: SoundType | string;
@@ -9,9 +9,12 @@ export interface AlarmConfig {
   repeatInterval: number; // in seconds
   enableVibration?: boolean;
   enableWakeScreen?: boolean;
+  customSoundUri?: string; // URI or Data URL from user device
+  loopUntilClicked?: boolean; // Repeat indefinitely until user dismisses/clicks
 }
 
 let activeAudioCtx: any = null;
+let activeAudioElement: any = null;
 let activeIntervalId: any = null;
 let activeTimeoutIds: any[] = [];
 let wakeLockSentinel: any = null;
@@ -200,6 +203,36 @@ function playSynthSound(type: string, volume: number = 100) {
 }
 
 /**
+ * Plays either a custom audio source (from device) or a synthesized tone
+ */
+function playAudioSource(type: string, volume: number = 100, customSoundUri?: string) {
+  if (type === 'custom' && customSoundUri) {
+    try {
+      if (Platform.OS === 'web' && typeof Audio !== 'undefined') {
+        if (activeAudioElement) {
+          try {
+            activeAudioElement.pause();
+            activeAudioElement.currentTime = 0;
+          } catch {}
+        }
+        activeAudioElement = new Audio(customSoundUri);
+        activeAudioElement.volume = Math.max(0.01, Math.min(1.0, volume / 100));
+        activeAudioElement.play().catch((err: any) => {
+          console.warn('Custom audio playback error, falling back to chime:', err);
+          playSynthSound('kitchen_bell', volume);
+        });
+        return;
+      }
+    } catch (e) {
+      console.warn('Custom audio source error:', e);
+    }
+  }
+
+  // Synthesizer fallback
+  playSynthSound(type, volume);
+}
+
+/**
  * Triggers the full order alarm sequence (sound loop, vibration, screen wake lock)
  */
 export function playOrderAlarm(config: AlarmConfig) {
@@ -209,6 +242,7 @@ export function playOrderAlarm(config: AlarmConfig) {
   const volume = config.volume ?? 100;
   const repeatCount = Math.max(1, Math.min(10, config.repeatCount ?? 3));
   const repeatIntervalMs = Math.max(300, (config.repeatInterval ?? 2) * 1000);
+  const loopUntilClicked = !!config.loopUntilClicked;
 
   // 1. Acquire wake lock if enabled
   if (config.enableWakeScreen !== false) {
@@ -225,15 +259,16 @@ export function playOrderAlarm(config: AlarmConfig) {
   }
 
   // 3. Play first iteration immediately
-  playSynthSound(soundType, volume);
+  playAudioSource(soundType, volume, config.customSoundUri);
 
   let playCount = 1;
-  if (playCount >= repeatCount) return;
+  if (!loopUntilClicked && playCount >= repeatCount) return;
 
   // 4. Schedule repeated iterations
   activeIntervalId = setInterval(() => {
-    if (playCount < repeatCount) {
-      playSynthSound(soundType, volume);
+    // If loopUntilClicked is true, keep repeating indefinitely!
+    if (loopUntilClicked || playCount < repeatCount) {
+      playAudioSource(soundType, volume, config.customSoundUri);
       if (config.enableVibration !== false) {
         try {
           Vibration.vibrate([0, 400], false);
@@ -253,6 +288,14 @@ export function stopOrderAlarm() {
   if (activeIntervalId) {
     clearInterval(activeIntervalId);
     activeIntervalId = null;
+  }
+
+  if (activeAudioElement) {
+    try {
+      activeAudioElement.pause();
+      activeAudioElement.currentTime = 0;
+    } catch {}
+    activeAudioElement = null;
   }
 
   activeTimeoutIds.forEach((id) => clearTimeout(id));

@@ -110,6 +110,15 @@ export interface DeliveryPlatform {
   Sort_order: number;
 }
 
+export interface OrderLog {
+  Log_id?: number;
+  Order_code: string;
+  Modified_by?: string;
+  Old_content?: string;
+  New_content?: string;
+  Modified_at?: string;
+}
+
 export interface SystemSettings {
   serverUrl: string;
   brandName: string;
@@ -145,6 +154,9 @@ export interface SystemSettings {
   kitchenSoundVolume: number;
   kitchenRepeatCount: number;
   kitchenRepeatInterval: number;
+  kitchenCustomSoundUri?: string;
+  kitchenCustomSoundName?: string;
+  kitchenLoopUntilClicked?: boolean;
 
   // Ready Orders Sound
   readySoundEnabled: boolean;
@@ -152,6 +164,9 @@ export interface SystemSettings {
   readySoundVolume: number;
   readyRepeatCount: number;
   readyRepeatInterval: number;
+  readyCustomSoundUri?: string;
+  readyCustomSoundName?: string;
+  readyLoopUntilClicked?: boolean;
 
   // User Permissions Map: { [username: string]: string[] }
   user_permissions: Record<string, string[]>;

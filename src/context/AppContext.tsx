@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
+import { View, Text, TouchableOpacity } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { io, Socket } from 'socket.io-client';
 import {
@@ -24,6 +25,7 @@ import {
 } from '@/constants/initialData';
 import { CustomDialog, DialogOptions } from '@/components/CustomDialog';
 import { playOrderAlarm, stopOrderAlarm } from '@/utils/alarmHelper';
+import { syncDatabaseWithSql } from '@/utils/dbSync';
 
 export interface DeliveryContextState {
   platform: string;
@@ -147,8 +149,12 @@ interface AppContextType {
   ) => void;
 
   // Alarm & Sound Helpers
+  isAlarmRinging: boolean;
   triggerAlarmTest: (type?: 'KITCHEN' | 'READY', customConfig?: Partial<SystemSettings>) => void;
   stopAlarm: () => void;
+
+  // SQL & DB Sync
+  syncWithSql: () => Promise<{ success: boolean; message: string; serverSynced: boolean }>;
 
   // Counters
   kitchenPendingCount: number;
@@ -203,6 +209,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     title: '',
     message: '',
   });
+  const [isAlarmRinging, setIsAlarmRinging] = useState<boolean>(false);
 
   const [deliveryContext, setDeliveryContext] = useState<DeliveryContextState>({
     platform: 'GrabFood',
@@ -351,12 +358,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const volume = type === 'KITCHEN' ? cfg.kitchenSoundVolume : cfg.readySoundVolume;
       const repeatCount = type === 'KITCHEN' ? cfg.kitchenRepeatCount : cfg.readyRepeatCount;
       const repeatInterval = type === 'KITCHEN' ? cfg.kitchenRepeatInterval : cfg.readyRepeatInterval;
+      const customSoundUri = type === 'KITCHEN' ? cfg.kitchenCustomSoundUri : cfg.readyCustomSoundUri;
+      const loopUntilClicked = type === 'KITCHEN' ? !!cfg.kitchenLoopUntilClicked : !!cfg.readyLoopUntilClicked;
 
+      setIsAlarmRinging(true);
       playOrderAlarm({
         soundType,
         volume,
         repeatCount,
         repeatInterval,
+        customSoundUri,
+        loopUntilClicked,
         enableVibration: true,
         enableWakeScreen: true,
       });
@@ -366,7 +378,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const stopAlarm = useCallback(() => {
     stopOrderAlarm();
+    setIsAlarmRinging(false);
   }, []);
+
+  const syncWithSql = useCallback(async () => {
+    const res = await syncDatabaseWithSql(serverUrl);
+    if (res.success) {
+      await syncFromServer();
+    }
+    return res;
+  }, [serverUrl, syncFromServer]);
 
   // Socket.IO realtime connection
   useEffect(() => {
@@ -386,14 +407,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       socket.on('table_updated', () => syncFromServer());
 
+      socket.on('database_resynced', () => {
+        syncFromServer();
+      });
+
       socket.on('kitchen_new_order', (orderData: any) => {
         syncFromServer();
         if (systemSettings.kitchenSoundEnabled !== false && systemSettings.soundAlertsEnabled !== false) {
+          setIsAlarmRinging(true);
           playOrderAlarm({
             soundType: systemSettings.kitchenSoundType || 'kitchen_bell',
             volume: systemSettings.kitchenSoundVolume ?? 100,
             repeatCount: systemSettings.kitchenRepeatCount ?? 3,
             repeatInterval: systemSettings.kitchenRepeatInterval ?? 2,
+            customSoundUri: systemSettings.kitchenCustomSoundUri,
+            loopUntilClicked: !!systemSettings.kitchenLoopUntilClicked,
             enableVibration: true,
             enableWakeScreen: true,
           });
@@ -403,11 +431,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       socket.on('waiter_order_ready', () => {
         syncFromServer();
         if (systemSettings.readySoundEnabled !== false && systemSettings.soundAlertsEnabled !== false) {
+          setIsAlarmRinging(true);
           playOrderAlarm({
             soundType: systemSettings.readySoundType || 'dingdong',
             volume: systemSettings.readySoundVolume ?? 100,
             repeatCount: systemSettings.readyRepeatCount ?? 5,
             repeatInterval: systemSettings.readyRepeatInterval ?? 1,
+            customSoundUri: systemSettings.readyCustomSoundUri,
+            loopUntilClicked: !!systemSettings.readyLoopUntilClicked,
             enableVibration: true,
             enableWakeScreen: true,
           });
@@ -418,11 +449,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         syncFromServer();
         if (data && (data.Status === 'READY' || data.status === 'READY')) {
           if (systemSettings.readySoundEnabled !== false && systemSettings.soundAlertsEnabled !== false) {
+            setIsAlarmRinging(true);
             playOrderAlarm({
               soundType: systemSettings.readySoundType || 'dingdong',
               volume: systemSettings.readySoundVolume ?? 100,
               repeatCount: systemSettings.readyRepeatCount ?? 5,
               repeatInterval: systemSettings.readyRepeatInterval ?? 1,
+              customSoundUri: systemSettings.readyCustomSoundUri,
+              loopUntilClicked: !!systemSettings.readyLoopUntilClicked,
               enableVibration: true,
               enableWakeScreen: true,
             });
@@ -1180,14 +1214,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateUserPermissions,
         showAlert,
         showConfirm,
+        isAlarmRinging,
         triggerAlarmTest,
         stopAlarm,
+        syncWithSql,
         kitchenPendingCount,
         readyOrdersCount,
         cartTotalAmount,
         cartTotalCount,
       }}>
       {children}
+      {isAlarmRinging && (
+        <View
+          style={{
+            position: 'absolute',
+            top: 20,
+            left: 20,
+            right: 20,
+            zIndex: 99999,
+            backgroundColor: '#dc2626',
+            borderRadius: 12,
+            paddingVertical: 14,
+            paddingHorizontal: 20,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.35,
+            shadowRadius: 10,
+            elevation: 12,
+          }}>
+          <TouchableOpacity
+            style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 12 }}
+            onPress={stopAlarm}
+            activeOpacity={0.8}>
+            <Text style={{ fontSize: 24, marginRight: 10 }}>🚨</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: '#ffffff', fontWeight: 'bold', fontSize: 16 }}>
+                BÁO ĐỘNG ĐƠN HÀNG MỚI!
+              </Text>
+              <Text style={{ color: '#fecaca', fontSize: 13, marginTop: 2 }}>
+                Chuông đang lặp lại liên tục... Bấm vào đây để tắt chuông
+              </Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={stopAlarm}
+            style={{
+              backgroundColor: '#ffffff',
+              paddingHorizontal: 16,
+              paddingVertical: 10,
+              borderRadius: 8,
+            }}
+            activeOpacity={0.85}>
+            <Text style={{ color: '#dc2626', fontWeight: 'bold', fontSize: 14 }}>TẮT CHUÔNG</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       <CustomDialog dialog={dialogState} onClose={closeDialog} />
     </AppContext.Provider>
   );

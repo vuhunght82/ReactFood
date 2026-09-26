@@ -5,6 +5,7 @@ export const INITIAL_USERS: User[] = [
   { User_id: 503, User_name: 'admin', User_password: '123456', Full_name: 'Admin Hệ Thống', Role: 'ADMIN', Phone: '0901112233' },
   { User_id: 209, User_name: 'quay', User_password: '111', Full_name: 'Thu Ngân Quầy', Role: 'CASHIER', Phone: '0908888888' },
   { User_id: 504, User_name: 'cashier1', User_password: '123456', Full_name: 'Thu Ngân Ca Tối', Role: 'CASHIER', Phone: '0903334455' },
+  { User_id: 506, User_name: 'shipper1', User_password: '123456', Full_name: 'Shipper Giao Hàng', Role: 'WAITER', Phone: '0907771122' },
   { User_id: 505, User_name: 'boi', User_password: '111', Full_name: 'Bồi Bàn', Role: 'WAITER', Phone: '0909999999' },
   { User_id: 289, User_name: 'bep', User_password: '111', Full_name: 'Bếp Hoa Sen', Role: 'KITCHEN', Phone: '0907654321' },
 ];
@@ -461,6 +462,9 @@ export const INITIAL_SYSTEM_SETTINGS: SystemSettings = {
   kitchenSoundVolume: 100,
   kitchenRepeatCount: 3,
   kitchenRepeatInterval: 2,
+  kitchenCustomSoundUri: '',
+  kitchenCustomSoundName: '',
+  kitchenLoopUntilClicked: false,
 
   // Ready Orders Sound
   readySoundEnabled: true,
@@ -468,6 +472,9 @@ export const INITIAL_SYSTEM_SETTINGS: SystemSettings = {
   readySoundVolume: 100,
   readyRepeatCount: 5,
   readyRepeatInterval: 1,
+  readyCustomSoundUri: '',
+  readyCustomSoundName: '',
+  readyLoopUntilClicked: false,
 
   // User Permissions Map
   user_permissions: {

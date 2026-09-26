@@ -14,6 +14,7 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import { useApp } from '@/context/AppContext';
 import { SystemSettings } from '@/types';
 import { useRouter } from 'expo-router';
+import * as DocumentPicker from 'expo-document-picker';
 
 export default function SystemSettingsScreen() {
   const router = useRouter();
@@ -21,6 +22,7 @@ export default function SystemSettingsScreen() {
     serverUrl,
     setServerUrl,
     syncFromServer,
+    syncWithSql,
     systemSettings,
     updateSystemSettings,
     users,
@@ -115,11 +117,101 @@ export default function SystemSettingsScreen() {
 
   const handleTestSound = (type: 'KITCHEN' | 'READY') => {
     triggerAlarmTest(type, formData);
-    const soundTitle = type === 'KITCHEN' ? formData.kitchenSoundType : formData.readySoundType;
+    const soundTitle =
+      type === 'KITCHEN'
+        ? formData.kitchenSoundType === 'custom'
+          ? `File riêng: ${formData.kitchenCustomSoundName || 'Đã tải lên'}`
+          : formData.kitchenSoundType
+        : formData.readySoundType === 'custom'
+        ? `File riêng: ${formData.readyCustomSoundName || 'Đã tải lên'}`
+        : formData.readySoundType;
     showAlert(
       '🔊 Đang Phát Âm Thanh Báo Động',
       `Đang phát chuông [${soundTitle.toUpperCase()}] kèm rung thiết bị & bật màn hình sáng!`,
       'info'
+    );
+  };
+
+  const handlePickAudio = async (target: 'KITCHEN' | 'READY') => {
+    try {
+      if (Platform.OS === 'web' && typeof document !== 'undefined') {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'audio/*';
+        input.onchange = (e: any) => {
+          const file = e.target.files?.[0];
+          if (file) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              const dataUrl = event.target?.result as string;
+              if (target === 'KITCHEN') {
+                setFormData((prev) => ({
+                  ...prev,
+                  kitchenSoundType: 'custom',
+                  kitchenCustomSoundUri: dataUrl,
+                  kitchenCustomSoundName: file.name,
+                }));
+              } else {
+                setFormData((prev) => ({
+                  ...prev,
+                  readySoundType: 'custom',
+                  readyCustomSoundUri: dataUrl,
+                  readyCustomSoundName: file.name,
+                }));
+              }
+              showAlert('Đã chọn file', `Đã tải lên file âm thanh từ thiết bị: ${file.name}`, 'success');
+            };
+            reader.readAsDataURL(file);
+          }
+        };
+        input.click();
+        return;
+      }
+
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'audio/*',
+        copyToCacheDirectory: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        if (target === 'KITCHEN') {
+          setFormData((prev) => ({
+            ...prev,
+            kitchenSoundType: 'custom',
+            kitchenCustomSoundUri: asset.uri,
+            kitchenCustomSoundName: asset.name,
+          }));
+        } else {
+          setFormData((prev) => ({
+            ...prev,
+            readySoundType: 'custom',
+            readyCustomSoundUri: asset.uri,
+            readyCustomSoundName: asset.name,
+          }));
+        }
+        showAlert('Đã chọn file', `Đã nạp file âm thanh từ thiết bị: ${asset.name}`, 'success');
+      }
+    } catch (err: any) {
+      showAlert('Lỗi', `Không thể tải file âm thanh: ${err.message}`, 'danger');
+    }
+  };
+
+  const handleSyncSql = async () => {
+    showConfirm(
+      'Đồng Bộ CSDL từ thư mục SQL',
+      'Hệ thống sẽ đồng bộ hóa cơ sở dữ liệu, nạp danh mục và 24 món ăn chuẩn từ thư mục "sql/". Bạn có muốn tiếp tục?',
+      async () => {
+        const res = await syncWithSql();
+        showAlert(
+          res.success ? 'Đồng Bộ Thành Công' : 'Thông Báo',
+          res.message,
+          res.success ? 'success' : 'danger'
+        );
+      },
+      'Đồng bộ ngay',
+      'Hủy',
+      'warning'
     );
   };
 
@@ -154,10 +246,20 @@ export default function SystemSettingsScreen() {
           <FontAwesome5 name="cogs" size={18} color="#15803d" />
           <Text style={styles.pageTitle}>Cấu Hình Quản Lý Hệ Thống</Text>
         </View>
-        <TouchableOpacity style={styles.btnSaveAll} onPress={handleSaveAll} activeOpacity={0.85}>
-          <FontAwesome5 name="save" size={13} color="#ffffff" style={{ marginRight: 6 }} />
-          <Text style={styles.btnSaveAllText}>Lưu Toàn Bộ Cấu Hình</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+          <TouchableOpacity
+            style={[styles.btnSaveAll, { backgroundColor: '#0284c7' }]}
+            onPress={handleSyncSql}
+            activeOpacity={0.85}>
+            <FontAwesome5 name="database" size={13} color="#ffffff" style={{ marginRight: 6 }} />
+            <Text style={styles.btnSaveAllText}>Đồng Bộ CSDL từ SQL</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.btnSaveAll} onPress={handleSaveAll} activeOpacity={0.85}>
+            <FontAwesome5 name="save" size={13} color="#ffffff" style={{ marginRight: 6 }} />
+            <Text style={styles.btnSaveAllText}>Lưu Toàn Bộ Cấu Hình</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Sub Tabs Pill Row */}
@@ -685,6 +787,7 @@ export default function SystemSettingsScreen() {
                           { id: 'urgent_alarm', label: 'Báo Động Gấp' },
                           { id: 'siren', label: 'Còi Cảnh Báo' },
                           { id: 'fanfare', label: 'Kèn Vui' },
+                          { id: 'custom', label: '📁 Tải lên từ thiết bị' },
                         ].map((s) => (
                           <TouchableOpacity
                             key={s.id}
@@ -715,6 +818,49 @@ export default function SystemSettingsScreen() {
                     </View>
                   </View>
 
+                  {/* Upload âm thanh từ thiết bị cho Bếp */}
+                  {formData.kitchenSoundType === 'custom' && (
+                    <View style={{ marginTop: 10, padding: 12, backgroundColor: '#f0fdf4', borderRadius: 8, borderWidth: 1, borderColor: '#86efac' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                        <TouchableOpacity
+                          style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#15803d', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 6 }}
+                          onPress={() => handlePickAudio('KITCHEN')}
+                          activeOpacity={0.85}>
+                          <FontAwesome5 name="file-audio" size={12} color="#ffffff" style={{ marginRight: 6 }} />
+                          <Text style={{ color: '#ffffff', fontWeight: 'bold', fontSize: 12 }}>Chọn File Âm Thanh Từ Máy (.mp3, .wav, .ogg)</Text>
+                        </TouchableOpacity>
+                      </View>
+                      {formData.kitchenCustomSoundName ? (
+                        <Text style={{ marginTop: 8, color: '#166534', fontSize: 12, fontWeight: 'bold' }}>
+                          🎵 File đang sử dụng: {formData.kitchenCustomSoundName}
+                        </Text>
+                      ) : (
+                        <Text style={{ marginTop: 8, color: '#64748b', fontSize: 12 }}>
+                          Chưa có file nào được nạp. Hãy bấm nút trên để tải file âm thanh từ thiết bị của bạn.
+                        </Text>
+                      )}
+                    </View>
+                  )}
+
+                  {/* Lặp lại cho tới khi được bấm vào */}
+                  <View style={[styles.switchRow, { marginTop: 12, backgroundColor: '#ffffff', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' }]}>
+                    <View style={{ flex: 1, paddingRight: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <FontAwesome5 name="redo-alt" size={12} color="#dc2626" />
+                        <Text style={[styles.switchLabel, { fontWeight: 'bold' }]}>Lặp lại cho tới khi được bấm vào</Text>
+                      </View>
+                      <Text style={styles.switchDesc}>
+                        Chuông báo động sẽ kêu liên tục không ngừng cho đến khi nhân viên bấm vào màn hình hoặc bấm nút tắt chuông.
+                      </Text>
+                    </View>
+                    <Switch
+                      value={formData.kitchenLoopUntilClicked ?? false}
+                      onValueChange={(v) => setFormData((prev) => ({ ...prev, kitchenLoopUntilClicked: v }))}
+                      trackColor={{ false: '#cbd5e1', true: '#fca5a5' }}
+                      thumbColor={formData.kitchenLoopUntilClicked ? '#dc2626' : '#f1f5f9'}
+                    />
+                  </View>
+
                   <View style={{ marginTop: 10 }}>
                     <Text style={styles.inputLabel}>Âm lượng phát: {formData.kitchenSoundVolume ?? 100}%</Text>
                     <View style={styles.chipsRow}>
@@ -731,39 +877,41 @@ export default function SystemSettingsScreen() {
                     </View>
                   </View>
 
-                  <View style={styles.formRowTwoCol}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.inputLabel}>Số lần lặp lại: {formData.kitchenRepeatCount} lần</Text>
-                      <View style={styles.chipsRow}>
-                        {[1, 2, 3, 5, 8, 10].map((cnt) => (
-                          <TouchableOpacity
-                            key={cnt}
-                            style={[styles.smallPill, formData.kitchenRepeatCount === cnt && styles.smallPillActive]}
-                            onPress={() => setFormData((prev) => ({ ...prev, kitchenRepeatCount: cnt }))}>
-                            <Text style={[styles.smallPillText, formData.kitchenRepeatCount === cnt && styles.smallPillTextActive]}>
-                              {cnt} lần
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
+                  {!formData.kitchenLoopUntilClicked && (
+                    <View style={styles.formRowTwoCol}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.inputLabel}>Số lần lặp lại: {formData.kitchenRepeatCount} lần</Text>
+                        <View style={styles.chipsRow}>
+                          {[1, 2, 3, 5, 8, 10].map((cnt) => (
+                            <TouchableOpacity
+                              key={cnt}
+                              style={[styles.smallPill, formData.kitchenRepeatCount === cnt && styles.smallPillActive]}
+                              onPress={() => setFormData((prev) => ({ ...prev, kitchenRepeatCount: cnt }))}>
+                              <Text style={[styles.smallPillText, formData.kitchenRepeatCount === cnt && styles.smallPillTextActive]}>
+                                {cnt} lần
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
                       </View>
-                    </View>
 
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.inputLabel}>Khoảng cách lặp: {formData.kitchenRepeatInterval} giây</Text>
-                      <View style={styles.chipsRow}>
-                        {[1, 2, 3, 5].map((sec) => (
-                          <TouchableOpacity
-                            key={sec}
-                            style={[styles.smallPill, formData.kitchenRepeatInterval === sec && styles.smallPillActive]}
-                            onPress={() => setFormData((prev) => ({ ...prev, kitchenRepeatInterval: sec }))}>
-                            <Text style={[styles.smallPillText, formData.kitchenRepeatInterval === sec && styles.smallPillTextActive]}>
-                              {sec}s
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.inputLabel}>Khoảng cách lặp: {formData.kitchenRepeatInterval} giây</Text>
+                        <View style={styles.chipsRow}>
+                          {[1, 2, 3, 5].map((sec) => (
+                            <TouchableOpacity
+                              key={sec}
+                              style={[styles.smallPill, formData.kitchenRepeatInterval === sec && styles.smallPillActive]}
+                              onPress={() => setFormData((prev) => ({ ...prev, kitchenRepeatInterval: sec }))}>
+                              <Text style={[styles.smallPillText, formData.kitchenRepeatInterval === sec && styles.smallPillTextActive]}>
+                                {sec}s
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
                       </View>
                     </View>
-                  </View>
+                  )}
                 </View>
 
                 {/* B. Báo Nhận Món */}
@@ -785,13 +933,15 @@ export default function SystemSettingsScreen() {
 
                   <View style={styles.soundConfigRow}>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.inputLabel}>Kiểu âm thanh chuông báo</Text>
+                      <Text style={styles.inputLabel}>Kiểu âm thanh chuông báo Nhận Món</Text>
                       <View style={styles.chipsRow}>
                         {[
                           { id: 'dingdong', label: 'Ding-Dong' },
                           { id: 'kitchen_bell', label: 'Ting-Ting' },
                           { id: 'beep_alert', label: 'Beep' },
+                          { id: 'urgent_alarm', label: 'Báo Động' },
                           { id: 'fanfare', label: 'Kèn Vui' },
+                          { id: 'custom', label: '📁 Tải lên từ thiết bị' },
                         ].map((s) => (
                           <TouchableOpacity
                             key={s.id}
@@ -805,47 +955,115 @@ export default function SystemSettingsScreen() {
                       </View>
                     </View>
 
-                    <TouchableOpacity
-                      style={styles.btnListenTest}
-                      onPress={() => handleTestSound('READY')}>
-                      <FontAwesome5 name="play" size={11} color="#ffffff" style={{ marginRight: 5 }} />
-                      <Text style={styles.btnListenTestText}>Nghe Thử</Text>
-                    </TouchableOpacity>
-                  </View>
+                    <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                      <TouchableOpacity
+                        style={styles.btnListenTest}
+                        onPress={() => handleTestSound('READY')}>
+                        <FontAwesome5 name="play" size={11} color="#ffffff" style={{ marginRight: 5 }} />
+                        <Text style={styles.btnListenTestText}>Nghe Thử</Text>
+                      </TouchableOpacity>
 
-                  <View style={styles.formRowTwoCol}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.inputLabel}>Số lần kêu: {formData.readyRepeatCount} lần</Text>
-                      <View style={styles.chipsRow}>
-                        {[1, 2, 3, 5].map((cnt) => (
-                          <TouchableOpacity
-                            key={cnt}
-                            style={[styles.smallPill, formData.readyRepeatCount === cnt && styles.smallPillActive]}
-                            onPress={() => setFormData((prev) => ({ ...prev, readyRepeatCount: cnt }))}>
-                            <Text style={[styles.smallPillText, formData.readyRepeatCount === cnt && styles.smallPillTextActive]}>
-                              {cnt} lần
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </View>
-
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.inputLabel}>Khoảng cách: {formData.readyRepeatInterval} giây</Text>
-                      <View style={styles.chipsRow}>
-                        {[1, 2, 3].map((sec) => (
-                          <TouchableOpacity
-                            key={sec}
-                            style={[styles.smallPill, formData.readyRepeatInterval === sec && styles.smallPillActive]}
-                            onPress={() => setFormData((prev) => ({ ...prev, readyRepeatInterval: sec }))}>
-                            <Text style={[styles.smallPillText, formData.readyRepeatInterval === sec && styles.smallPillTextActive]}>
-                              {sec}s
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
+                      <TouchableOpacity
+                        style={[styles.btnListenTest, { backgroundColor: '#ef4444' }]}
+                        onPress={stopAlarm}>
+                        <FontAwesome5 name="stop" size={11} color="#ffffff" style={{ marginRight: 5 }} />
+                        <Text style={styles.btnListenTestText}>Dừng</Text>
+                      </TouchableOpacity>
                     </View>
                   </View>
+
+                  {/* Upload âm thanh từ thiết bị cho Nhận món */}
+                  {formData.readySoundType === 'custom' && (
+                    <View style={{ marginTop: 10, padding: 12, backgroundColor: '#f0fdf4', borderRadius: 8, borderWidth: 1, borderColor: '#86efac' }}>
+                      <TouchableOpacity
+                        style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#15803d', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 6, alignSelf: 'flex-start' }}
+                        onPress={() => handlePickAudio('READY')}
+                        activeOpacity={0.85}>
+                        <FontAwesome5 name="file-audio" size={12} color="#ffffff" style={{ marginRight: 6 }} />
+                        <Text style={{ color: '#ffffff', fontWeight: 'bold', fontSize: 12 }}>Chọn File Âm Thanh Từ Máy (.mp3, .wav, .ogg)</Text>
+                      </TouchableOpacity>
+                      {formData.readyCustomSoundName ? (
+                        <Text style={{ marginTop: 8, color: '#166534', fontSize: 12, fontWeight: 'bold' }}>
+                          🎵 File đang sử dụng: {formData.readyCustomSoundName}
+                        </Text>
+                      ) : (
+                        <Text style={{ marginTop: 8, color: '#64748b', fontSize: 12 }}>
+                          Chưa có file nào được nạp. Hãy bấm nút trên để tải file âm thanh từ thiết bị của bạn.
+                        </Text>
+                      )}
+                    </View>
+                  )}
+
+                  {/* Lặp lại cho tới khi được bấm vào (Nhận món) */}
+                  <View style={[styles.switchRow, { marginTop: 12, backgroundColor: '#ffffff', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' }]}>
+                    <View style={{ flex: 1, paddingRight: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <FontAwesome5 name="redo-alt" size={12} color="#dc2626" />
+                        <Text style={[styles.switchLabel, { fontWeight: 'bold' }]}>Lặp lại cho tới khi được bấm vào</Text>
+                      </View>
+                      <Text style={styles.switchDesc}>
+                        Chuông báo nhận món sẽ kêu liên tục không ngừng cho đến khi được bấm tắt trên màn hình.
+                      </Text>
+                    </View>
+                    <Switch
+                      value={formData.readyLoopUntilClicked ?? false}
+                      onValueChange={(v) => setFormData((prev) => ({ ...prev, readyLoopUntilClicked: v }))}
+                      trackColor={{ false: '#cbd5e1', true: '#fca5a5' }}
+                      thumbColor={formData.readyLoopUntilClicked ? '#dc2626' : '#f1f5f9'}
+                    />
+                  </View>
+
+                  <View style={{ marginTop: 10 }}>
+                    <Text style={styles.inputLabel}>Âm lượng phát: {formData.readySoundVolume ?? 100}%</Text>
+                    <View style={styles.chipsRow}>
+                      {[25, 50, 75, 100].map((vol) => (
+                        <TouchableOpacity
+                          key={vol}
+                          style={[styles.smallPill, (formData.readySoundVolume ?? 100) === vol && styles.smallPillActive]}
+                          onPress={() => setFormData((prev) => ({ ...prev, readySoundVolume: vol }))}>
+                          <Text style={[styles.smallPillText, (formData.readySoundVolume ?? 100) === vol && styles.smallPillTextActive]}>
+                            {vol}%
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+
+                  {!formData.readyLoopUntilClicked && (
+                    <View style={styles.formRowTwoCol}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.inputLabel}>Số lần kêu: {formData.readyRepeatCount} lần</Text>
+                        <View style={styles.chipsRow}>
+                          {[1, 2, 3, 5, 8, 10].map((cnt) => (
+                            <TouchableOpacity
+                              key={cnt}
+                              style={[styles.smallPill, formData.readyRepeatCount === cnt && styles.smallPillActive]}
+                              onPress={() => setFormData((prev) => ({ ...prev, readyRepeatCount: cnt }))}>
+                              <Text style={[styles.smallPillText, formData.readyRepeatCount === cnt && styles.smallPillTextActive]}>
+                                {cnt} lần
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </View>
+
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.inputLabel}>Khoảng cách lặp: {formData.readyRepeatInterval} giây</Text>
+                        <View style={styles.chipsRow}>
+                          {[1, 2, 3, 5].map((sec) => (
+                            <TouchableOpacity
+                              key={sec}
+                              style={[styles.smallPill, formData.readyRepeatInterval === sec && styles.smallPillActive]}
+                              onPress={() => setFormData((prev) => ({ ...prev, readyRepeatInterval: sec }))}>
+                              <Text style={[styles.smallPillText, formData.readyRepeatInterval === sec && styles.smallPillTextActive]}>
+                                {sec}s
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </View>
+                    </View>
+                  )}
                 </View>
 
                 {/* Save Settings Button */}
