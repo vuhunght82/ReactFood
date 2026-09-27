@@ -1,0 +1,57 @@
+name: Build iOS IPA for Sideloadly
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-14
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Project Dependencies
+        run: |
+          npm ci || npm install
+
+      - name: Prebuild Native iOS Project
+        run: |
+          npx expo prebuild --platform ios --clean
+
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install
+
+      - name: Build Archive (Skip Code Signing)
+        run: |
+          cd ios
+          SCHEME_NAME=$(xcodebuild -list -json | python3 -c "import sys, json; print(json.load(sys.stdin)['workspace']['schemes'][0])")
+          echo "Using scheme: $SCHEME_NAME"
+          
+          xcodebuild archive \
+            -workspace "${SCHEME_NAME}.xcworkspace" \
+            -scheme "$SCHEME_NAME" \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "build/${SCHEME_NAME}.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+          mkdir -p build/Payload
+          cp -r "build/${SCHEME_NAME}.xcarchive/Products/Applications/${SCHEME_NAME}.app" build/Payload/
+          cd build
+          zip -r -y ReactFood.ipa Payload
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReactFood-IPA
+          path: ios/build/ReactFood.ipa

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,9 +12,10 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import { Order, OrderStatus } from '@/types';
 import { LotusTheme } from '@/constants/theme';
 import { useApp } from '@/context/AppContext';
+import { API_BASE_URL } from '@/constants/apiConfig'; // Trỏ đúng đường dẫn tới file bạn vừa tạo ở Bước 1
 
 export default function KitchenScreen() {
-  const { orders, currentUser, updateOrderStatus, systemSettings, updateSystemSettings, hasPermission } = useApp();
+  const { orders, currentUser, updateOrderStatus, systemSettings, updateSystemSettings, hasPermission, socket } = useApp();
   const isSoundEnabled = systemSettings.sound_enabled;
   const toggleSound = () => updateSystemSettings({ sound_enabled: !isSoundEnabled });
 
@@ -22,17 +23,43 @@ export default function KitchenScreen() {
 
   const [activeKitchenTab, setActiveKitchenTab] = useState<'PENDING' | 'HISTORY' | 'MY_LOGS'>('PENDING');
 
+  // Lắng nghe sự kiện socket realtime nếu có từ AppContext
+  useEffect(() => {
+    if (!socket) return;
+    
+    // Tự động làm mới hoặc đồng bộ khi có đơn mới hoặc cập nhật trạng thái từ web
+    const handleOrderUpdate = () => {
+      // AppContext thường đã tự quản lý state orders qua socket chung, 
+      // ở đây ta có thể trigger hiệu ứng rung nhẹ nếu có đơn mới
+    };
+
+    socket.on('kitchen_new_order', handleOrderUpdate);
+    socket.on('order_status_updated', handleOrderUpdate);
+
+    return () => {
+      socket.off('kitchen_new_order', handleOrderUpdate);
+      socket.off('order_status_updated', handleOrderUpdate);
+    };
+  }, [socket]);
+
+  // Filter orders for Pending tab
   // Filter orders for Pending tab
   const pendingOrders = useMemo(() => {
     return orders
-      .filter((o) => o.Status === 'PENDING' || o.Status === 'PROCESSING' || o.Status === 'COOKING')
+      .filter((o) => {
+        const s = String(o.Status || '').toUpperCase();
+        return s === 'PENDING' || s === 'PROCESSING' || s === 'COOKING' || s === 'ACCEPTED';
+      })
       .sort((a, b) => b.Order_id - a.Order_id);
   }, [orders]);
 
   // Filter orders for History tab
   const historyOrders = useMemo(() => {
     return orders
-      .filter((o) => o.Status === 'READY' || o.Status === 'COMPLETED')
+      .filter((o) => {
+        const s = String(o.Status || '').toUpperCase();
+        return s === 'READY' || s === 'COMPLETED' || s === 'CANCELED' || s === 'CANCELLED';
+      })
       .sort((a, b) => b.Order_id - a.Order_id);
   }, [orders]);
 
@@ -46,13 +73,19 @@ export default function KitchenScreen() {
     );
   }, [orders, currentUser]);
 
-  const handleStartCooking = (orderId: number) => {
+  const handleStartCooking = (orderId: number, orderCode: string) => {
     updateOrderStatus(orderId, 'COOKING');
+    if (socket) {
+      socket.emit('kitchen_accept_order', { Order_id: orderId, Order_code: orderCode, Status: 'COOKING' });
+    }
     if (Platform.OS !== 'web') Vibration.vibrate(100);
   };
 
-  const handleFinishCooking = (orderId: number) => {
+  const handleFinishCooking = (orderId: number, orderCode: string) => {
     updateOrderStatus(orderId, 'READY');
+    if (socket) {
+      socket.emit('kitchen_finish_order', { Order_id: orderId, Order_code: orderCode, Status: 'READY' });
+    }
     if (Platform.OS !== 'web') Vibration.vibrate([100, 100, 100]);
   };
 
@@ -75,7 +108,7 @@ export default function KitchenScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Top Header Bar matching HTML #kitchenHeaderBar */}
+      {/* Top Header Bar */}
       <View style={styles.headerBar}>
         <View style={styles.titleRow}>
           <FontAwesome5 name="fire-alt" size={20} color="#facc15" />
@@ -86,7 +119,6 @@ export default function KitchenScreen() {
         </View>
 
         <View style={styles.headerActionsRow}>
-          {/* Sound Toggle */}
           <TouchableOpacity
             style={[styles.outlineActionBtn, isSoundEnabled && styles.outlineActionBtnActive]}
             onPress={toggleSound}>
@@ -237,7 +269,7 @@ export default function KitchenScreen() {
                       {isCompleted
                         ? '✔️ ĐƠN ĐÃ HOÀN TẤT'
                         : isReady
-                        ? '🔔 BẾP ĐÃ NẤU XONG - CHỜ BƯNG RA'
+                        ? '🔔 BẾP Đã NẤU XONG - CHỜ BƯNG RA'
                         : isCooking
                         ? '🍳 ĐANG NẤU TRÊN BẾP'
                         : '⏳ CHỜ BẾP TIẾP NHẬN NẤU'}
@@ -246,36 +278,18 @@ export default function KitchenScreen() {
 
                   {/* Items List */}
                   <View style={styles.ticketItemsList}>
-                    {order.items.map((it, idx) => (
+                    {order.items?.map((it: any, idx: number) => (
                       <View key={idx} style={styles.ticketItemRow}>
                         <View style={styles.kdsQtyBadge}>
-                          <Text style={styles.kdsQtyText}>{it.Quantity}x</Text>
+                          <Text style={styles.kdsQtyText}>{it.Quantity || it.quantity}x</Text>
                         </View>
                         <View style={{ flex: 1 }}>
-                          <Text style={styles.kdsItemName}>{it.Item_name}</Text>
-                          {Array.isArray(it.Toppings) && it.Toppings.length > 0 ? (
-                            <Text style={styles.kdsToppings}>
-                              + {it.Toppings.map((t: any) => t.name).join(', ')}
-                            </Text>
-                          ) : typeof it.Toppings === 'string' && it.Toppings ? (
-                            <Text style={styles.kdsToppings}>+ {it.Toppings}</Text>
-                          ) : null}
-                          {it.Note ? (
-                            <Text style={styles.kdsNote}>Ghi chú: {it.Note}</Text>
-                          ) : null}
+                          <Text style={styles.kdsItemName}>{it.Item_name || it.name}</Text>
+                          {it.Note ? <Text style={styles.kdsNote}>Ghi chú: {it.Note}</Text> : null}
                         </View>
                       </View>
                     ))}
                   </View>
-
-                  {/* Customer / Note Bar */}
-                  {order.Customer_name ? (
-                    <View style={styles.customerBar}>
-                      <Text style={styles.customerBarText}>
-                        Khách: {order.Customer_name} • ĐT: {order.Customer_phone || '--'}
-                      </Text>
-                    </View>
-                  ) : null}
 
                   {/* Action Buttons */}
                   {activeKitchenTab === 'PENDING' && (
@@ -283,7 +297,7 @@ export default function KitchenScreen() {
                       {!isCooking ? (
                         <TouchableOpacity
                           style={styles.btnStartCooking}
-                          onPress={() => handleStartCooking(order.Order_id)}
+                          onPress={() => handleStartCooking(order.Order_id, order.Order_code)}
                           activeOpacity={0.85}>
                           <FontAwesome5 name="fire-burner" size={14} color="#15803d" style={{ marginRight: 6 }} />
                           <Text style={styles.btnStartCookingText}>
@@ -293,7 +307,7 @@ export default function KitchenScreen() {
                       ) : (
                         <TouchableOpacity
                           style={styles.btnFinishCooking}
-                          onPress={() => handleFinishCooking(order.Order_id)}
+                          onPress={() => handleFinishCooking(order.Order_id, order.Order_code)}
                           activeOpacity={0.85}>
                           <FontAwesome5 name="check-circle" size={16} color="#ffffff" style={{ marginRight: 6 }} />
                           <Text style={styles.btnFinishCookingText}>
@@ -314,278 +328,50 @@ export default function KitchenScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f8fafc',
-  },
-  headerBar: {
-    backgroundColor: '#0f172a',
-    padding: 14,
-    borderBottomWidth: 3,
-    borderBottomColor: LotusTheme.accent,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  headerTitle: {
-    color: LotusTheme.accent,
-    fontSize: 14,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-  },
-  headerSubtitle: {
-    color: '#94a3b8',
-    fontSize: 11,
-    marginTop: 2,
-  },
-  headerActionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  outlineActionBtn: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  outlineActionBtnActive: {
-    borderColor: '#4ade80',
-    backgroundColor: 'rgba(74, 222, 128, 0.15)',
-  },
-  outlineActionText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#94a3b8',
-  },
-  outlineActionTextActive: {
-    color: '#86efac',
-  },
-  tabsStrip: {
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    flexDirection: 'row',
-    gap: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    flexWrap: 'wrap',
-  },
-  tabBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
-    backgroundColor: '#f1f5f9',
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  tabBtnActive: {
-    backgroundColor: '#0f172a',
-  },
-  tabText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#475569',
-  },
-  tabTextActive: {
-    color: '#ffffff',
-  },
-  ticketsContainer: {
-    padding: 14,
-    paddingBottom: 70,
-  },
-  emptyBox: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 80,
-    gap: 12,
-  },
-  emptyIconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#dcfce7',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: '#1e293b',
-  },
-  emptySub: {
-    fontSize: 12,
-    color: '#64748b',
-    maxWidth: 340,
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-  ticketGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 14,
-  },
-  ticketCard: {
-    width: Platform.OS === 'web' ? ('calc(33.333% - 10px)' as any) : '100%',
-    minWidth: 280,
-    backgroundColor: '#ffffff',
-    borderRadius: 14,
-    overflow: 'hidden',
-    borderWidth: 2,
-    ...Platform.select({
-      web: { boxShadow: '0 4px 15px rgba(0,0,0,0.08)' },
-    }),
-  },
-  ticketPending: {
-    borderColor: '#fca5a5',
-  },
-  ticketCooking: {
-    borderColor: '#93c5fd',
-  },
-  ticketReady: {
-    borderColor: '#86efac',
-  },
-  ticketHeader: {
-    padding: 12,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  headerPending: {
-    backgroundColor: '#b91c1c',
-  },
-  headerCooking: {
-    backgroundColor: '#1d4ed8',
-  },
-  headerReady: {
-    backgroundColor: '#15803d',
-  },
-  ticketTarget: {
-    color: '#ffffff',
-    fontSize: 17,
-    fontWeight: '900',
-  },
-  ticketCode: {
-    color: '#fef08a',
-    fontSize: 11,
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  ticketTimeBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
-  },
-  ticketTimeText: {
-    color: '#ffffff',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  statusBanner: {
-    paddingVertical: 5,
-    paddingHorizontal: 12,
-    alignItems: 'center',
-  },
-  statusBannerText: {
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-  },
-  ticketItemsList: {
-    padding: 12,
-    gap: 8,
-  },
-  ticketItemRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    paddingBottom: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  kdsQtyBadge: {
-    backgroundColor: '#f0fdf4',
-    borderWidth: 2,
-    borderColor: '#86efac',
-    borderRadius: 16,
-    paddingHorizontal: 9,
-    paddingVertical: 3,
-  },
-  kdsQtyText: {
-    color: '#15803d',
-    fontSize: 15,
-    fontWeight: '900',
-  },
-  kdsItemName: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#1e293b',
-  },
-  kdsToppings: {
-    fontSize: 11,
-    color: LotusTheme.primary,
-    marginTop: 1,
-  },
-  kdsNote: {
-    fontSize: 11,
-    color: '#dc2626',
-    fontWeight: '700',
-    marginTop: 1,
-  },
-  customerBar: {
-    backgroundColor: '#f8fafc',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
-  },
-  customerBarText: {
-    fontSize: 11,
-    color: '#64748b',
-    fontWeight: '600',
-  },
-  actionsContainer: {
-    borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-  },
-  btnStartCooking: {
-    backgroundColor: '#ffffff',
-    paddingVertical: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderTopWidth: 2,
-    borderTopColor: '#16a34a',
-  },
-  btnStartCookingText: {
-    color: '#15803d',
-    fontSize: 12.5,
-    fontWeight: '900',
-  },
-  btnFinishCooking: {
-    backgroundColor: '#16a34a',
-    paddingVertical: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  btnFinishCookingText: {
-    color: '#ffffff',
-    fontSize: 13,
-    fontWeight: '900',
-  },
+  container: { flex: 1, backgroundColor: '#f8fafc' },
+  headerBar: { backgroundColor: '#0f172a', padding: 14, borderBottomWidth: 3, borderBottomColor: LotusTheme.accent, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerTitle: { color: LotusTheme.accent, fontSize: 14, fontWeight: '900', letterSpacing: 0.5 },
+  headerSubtitle: { color: '#94a3b8', fontSize: 11, marginTop: 2 },
+  headerActionsRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  outlineActionBtn: { backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, flexDirection: 'row', alignItems: 'center' },
+  outlineActionBtnActive: { borderColor: '#4ade80', backgroundColor: 'rgba(74, 222, 128, 0.15)' },
+  outlineActionText: { fontSize: 11, fontWeight: '700', color: '#94a3b8' },
+  outlineActionTextActive: { color: '#86efac' },
+  tabsStrip: { backgroundColor: '#ffffff', paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', gap: 8, borderBottomWidth: 1, borderBottomColor: '#e2e8f0', flexWrap: 'wrap' },
+  tabBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: '#f1f5f9', flexDirection: 'row', alignItems: 'center' },
+  tabBtnActive: { backgroundColor: '#0f172a' },
+  tabText: { fontSize: 12, fontWeight: '700', color: '#475569' },
+  tabTextActive: { color: '#ffffff' },
+  ticketsContainer: { padding: 14, paddingBottom: 70 },
+  emptyBox: { alignItems: 'center', justifyContent: 'center', paddingVertical: 80, gap: 12 },
+  emptyIconCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center' },
+  emptyTitle: { fontSize: 18, fontWeight: '900', color: '#1e293b' },
+  emptySub: { fontSize: 12, color: '#64748b', maxWidth: 340, textAlign: 'center', lineHeight: 18 },
+  ticketGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+  ticketCard: { width: Platform.OS === 'web' ? ('calc(33.333% - 10px)' as any) : '100%', minWidth: 280, backgroundColor: '#ffffff', borderRadius: 14, overflow: 'hidden', borderWidth: 2 },
+  ticketPending: { borderColor: '#fca5a5' },
+  ticketCooking: { borderColor: '#93c5fd' },
+  ticketReady: { borderColor: '#86efac' },
+  ticketHeader: { padding: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  headerPending: { backgroundColor: '#b91c1c' },
+  headerCooking: { backgroundColor: '#1d4ed8' },
+  headerReady: { backgroundColor: '#15803d' },
+  ticketTarget: { color: '#ffffff', fontSize: 17, fontWeight: '900' },
+  ticketCode: { color: '#fef08a', fontSize: 11, fontWeight: '700', marginTop: 2 },
+  ticketTimeBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.2)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 },
+  ticketTimeText: { color: '#ffffff', fontSize: 11, fontWeight: '700' },
+  statusBanner: { paddingVertical: 5, paddingHorizontal: 12, alignItems: 'center' },
+  statusBannerText: { fontSize: 11, fontWeight: '900', letterSpacing: 0.5 },
+  ticketItemsList: { padding: 12, gap: 8 },
+  ticketItemRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  kdsQtyBadge: { backgroundColor: '#f0fdf4', borderWidth: 2, borderColor: '#86efac', borderRadius: 16, paddingHorizontal: 9, paddingVertical: 3 },
+  kdsQtyText: { color: '#15803d', fontSize: 15, fontWeight: '900' },
+  kdsItemName: { fontSize: 14, fontWeight: '800', color: '#1e293b' },
+  kdsNote: { fontSize: 11, color: '#dc2626', fontWeight: '700', marginTop: 1 },
+  actionsContainer: { borderTopWidth: 1, borderTopColor: '#e2e8f0' },
+  btnStartCooking: { backgroundColor: '#ffffff', paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderTopWidth: 2, borderTopColor: '#16a34a' },
+  btnStartCookingText: { color: '#15803d', fontSize: 12.5, fontWeight: '900' },
+  btnFinishCooking: { backgroundColor: '#16a34a', paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  btnFinishCookingText: { color: '#ffffff', fontSize: 13, fontWeight: '900' },
 });

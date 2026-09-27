@@ -13,6 +13,7 @@ import {
   OrderStatus,
   Topping,
   SystemSettings,
+  
 } from '@/types';
 import {
   INITIAL_CATEGORIES,
@@ -47,7 +48,7 @@ interface AppContextType {
   addUser: (user: Omit<User, 'User_id'>) => void;
   updateUser: (user: User) => void;
   deleteUser: (userId: number) => void;
-
+socket?: any;
   // Tables
   tables: DiningTable[];
   tableLayout: 'HORIZONTAL' | 'VERTICAL';
@@ -227,7 +228,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     (async () => {
       try {
         const savedUrl = await AsyncStorage.getItem(STORAGE_KEY_SERVER);
-        if (savedUrl) setServerUrlState(savedUrl);
+        if (savedUrl && savedUrl.trim()) {
+          setServerUrlState(savedUrl.trim());
+        } else {
+          setServerUrlState('http://localhost:3000');
+        }
 
         const savedUser = await AsyncStorage.getItem(STORAGE_KEY_USER);
         if (savedUser) {

@@ -9,7 +9,11 @@
       "distribution": "internal"
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "ios": {
+        "simulator": false,
+        "enterpriseProvisioning": "adhoc"
+      }
     },
     "production": {
       "autoIncrement": true

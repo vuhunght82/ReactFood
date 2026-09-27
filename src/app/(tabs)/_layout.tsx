@@ -7,7 +7,7 @@ import { FloatingCartBtn } from '@/components/FloatingCartBtn';
 export default function TabsLayout() {
   return (
     <View style={styles.container}>
-      {/* 10 Navigation Tabs at top matching HTML header bar */}
+      {/* Navigation Tabs */}
       <NavTabs />
 
       {/* Screen View */}
@@ -32,7 +32,6 @@ export default function TabsLayout() {
         </Tabs>
       </View>
 
-      {/* Floating Cart Button at bottom right matching HTML #floatingCartBtn */}
       <FloatingCartBtn />
     </View>
   );

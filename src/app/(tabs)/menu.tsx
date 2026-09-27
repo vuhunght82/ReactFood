@@ -14,7 +14,7 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import { MenuItem, Topping } from '@/types';
 import { formatVND } from '@/constants/theme';
 import { useApp } from '@/context/AppContext';
-
+import { API_BASE_URL } from '@/constants/apiConfig'; // Trỏ đúng đường dẫn tới file bạn vừa tạo ở Bước 1
 export default function MenuTableScreen() {
   const { menuItems, categories, addMenuItem, updateMenuItem, deleteMenuItem } = useApp();
 

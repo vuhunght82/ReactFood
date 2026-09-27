@@ -73,7 +73,15 @@ export interface OrderDetail {
   Status?: 'PENDING' | 'COOKING' | 'READY' | 'SERVED';
 }
 
-export type OrderStatus = 'PENDING' | 'PROCESSING' | 'COOKING' | 'READY' | 'COMPLETED' | 'CANCELLED';
+export type OrderStatus = 
+  | 'PENDING' 
+  | 'PROCESSING' 
+  | 'COOKING' 
+  | 'ACCEPTED' 
+  | 'READY' 
+  | 'COMPLETED' 
+  | 'CANCELED' 
+  | 'CANCELLED';
 
 export interface Order {
   Order_id: number;

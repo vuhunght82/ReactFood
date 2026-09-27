@@ -34,6 +34,7 @@ export default function OrdersScreen() {
     showConfirm,
     hasPermission,
     systemSettings,
+    syncFromServer,
   } = useApp();
 
   // Filters & State
@@ -76,7 +77,39 @@ export default function OrdersScreen() {
 
   // Filtered Orders
   const filteredOrders = useMemo(() => {
+    // Pre-compute time boundaries for the timeRange filter
+    const now = new Date();
+    let timeStart: Date | null = null;
+    if (timeRange === 'TODAY') {
+      timeStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    } else if (timeRange === 'WEEK') {
+      const day = now.getDay(); // 0=Sun
+      const diff = day === 0 ? 6 : day - 1; // Monday as start of week
+      timeStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diff, 0, 0, 0, 0);
+    } else if (timeRange === 'MONTH') {
+      timeStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+    }
+    // timeRange === 'ALL' → timeStart stays null → no date filtering
+
     return orders.filter((o) => {
+      // 0. Time Range filter
+      if (timeStart) {
+        const createdAt = o.Created_at ? new Date(o.Created_at) : null;
+        // If Created_at is just a time string like "17:30", treat it as today
+        if (createdAt && !isNaN(createdAt.getTime())) {
+          if (createdAt < timeStart) return false;
+        } else if (o.Created_at) {
+          // Try parsing time-only format (HH:mm or HH:mm:ss) → assume today
+          const timeParts = o.Created_at.match(/^(\d{1,2}):(\d{2})/);
+          if (timeParts) {
+            const asToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(),
+              parseInt(timeParts[1], 10), parseInt(timeParts[2], 10));
+            if (asToday < timeStart) return false;
+          }
+          // If we can't parse at all, keep the order visible
+        }
+      }
+
       // 1. Scope
       if (scope === 'MY_ORDERS' && !canSeeAll) {
         const isMyOrder =
@@ -113,7 +146,7 @@ export default function OrdersScreen() {
 
       return true;
     });
-  }, [orders, scope, canSeeAll, statusFilter, typeFilter, searchQuery, currentUser]);
+  }, [orders, scope, canSeeAll, statusFilter, typeFilter, searchQuery, currentUser, timeRange]);
 
   // KPI Calculations
   const kpiServingCount = useMemo(
@@ -142,7 +175,10 @@ export default function OrdersScreen() {
     () =>
       orders
         .filter((o) => o.Status === 'COMPLETED' || o.Payment_status === 'PAID')
-        .reduce((sum, o) => sum + (o.Total_amount || 0), 0),
+        .reduce((sum, o) => {
+          const amount = o.Total_amount || o.Final_amount || (o.items ? o.items.reduce((s, it) => s + (it.Total || (it.Price * it.Quantity) || 0), 0) : 0);
+          return sum + amount;
+        }, 0),
     [orders]
   );
 
@@ -291,7 +327,14 @@ export default function OrdersScreen() {
           {/* Refresh Button */}
           <TouchableOpacity
             style={styles.btnRefresh}
-            onPress={() => showAlert('Thông báo', 'Đã làm mới dữ liệu đơn hàng thành công!', 'info')}
+            onPress={async () => {
+              const ok = await syncFromServer();
+              if (ok) {
+                showAlert('Thành công', 'Đã làm mới dữ liệu từ máy chủ thành công!', 'success');
+              } else {
+                showAlert('Thông báo', 'Đã tải lại danh sách đơn hàng cục bộ.', 'info');
+              }
+            }}
             activeOpacity={0.8}>
             <FontAwesome5 name="rotate" size={11} color="#15803d" style={{ marginRight: 5 }} />
             <Text style={styles.btnRefreshText}>Làm mới</Text>
@@ -603,7 +646,14 @@ export default function OrdersScreen() {
                             </View>
                           ) : (
                             <View>
-                              <Text style={styles.badgeDineIn}>🍽️ {order.Table_name || 'Bàn ' + (order.Table_number || '--')}</Text>
+                              <Text style={styles.badgeDineIn}>
+                                🍽️ {(() => {
+                                  if (order.Table_name) return order.Table_name;
+                                  if (!order.Table_number) return 'Mang về';
+                                  const num = String(order.Table_number).replace(/^[Bb]àn\s*/i, '');
+                                  return num.toUpperCase().startsWith('B') ? `Bàn ${num.slice(1)}` : `Bàn ${num}`;
+                                })()}
+                              </Text>
                               <Text style={styles.tdSubText}>Tại bàn</Text>
                             </View>
                           )}
@@ -631,13 +681,13 @@ export default function OrdersScreen() {
 
                         {/* 5. Món Đã Đặt */}
                         <View style={{ width: 220 }}>
-                          {order.items.slice(0, 3).map((it, idx) => (
+                          {(order.items || []).slice(0, 3).map((it, idx) => (
                             <Text key={idx} style={styles.dishSummaryText} numberOfLines={1}>
                               • <Text style={{ fontWeight: '700' }}>{it.Item_name}</Text> x{it.Quantity}
                               {it.Note ? <Text style={styles.dishNoteText}> ({it.Note})</Text> : null}
                             </Text>
                           ))}
-                          {order.items.length > 3 && (
+                          {(order.items || []).length > 3 && (
                             <Text style={styles.moreItemsText}>+ {order.items.length - 3} món khác...</Text>
                           )}
                         </View>
@@ -695,13 +745,30 @@ export default function OrdersScreen() {
                         {/* 9. Tổng Tiền */}
                         <View style={{ width: 110, alignItems: 'flex-end', justifyContent: 'center' }}>
                           <Text style={[styles.tdPriceText, isCanceled && styles.tdPriceCanceled]}>
-                            {formatVND(order.Total_amount)}
+                            {formatVND(
+                              order.Total_amount ||
+                              order.Final_amount ||
+                              ((order.items && order.items.length > 0)
+                                ? order.items.reduce((s, it) => s + (it.Total || (it.Price * it.Quantity) || 0), 0)
+                                : 0)
+                            )}
                           </Text>
                         </View>
 
                         {/* 10. Thời Gian */}
                         <View style={{ width: 90, alignItems: 'center', justifyContent: 'center' }}>
-                          <Text style={styles.tdSubText}>{order.Created_at || '--'}</Text>
+                          <Text style={styles.tdSubText} numberOfLines={2}>
+                            {(() => {
+                              if (!order.Created_at) return '--';
+                              const raw = String(order.Created_at);
+                              // If it has both date and time (YYYY-MM-DD HH:mm:ss)
+                              if (raw.includes(' ')) {
+                                const parts = raw.split(' ');
+                                return `${parts[1] || ''}\n${parts[0] || ''}`;
+                              }
+                              return raw;
+                            })()}
+                          </Text>
                         </View>
 
                         {/* 11. Thao Tác Toolbar Buttons (Matching Image 3) */}
