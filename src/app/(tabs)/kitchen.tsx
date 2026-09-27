@@ -12,7 +12,7 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import { Order, OrderStatus } from '@/types';
 import { LotusTheme } from '@/constants/theme';
 import { useApp } from '@/context/AppContext';
-import { API_BASE_URL } from '@/constants/apiConfig'; // Trỏ đúng đường dẫn tới file bạn vừa tạo ở Bước 1
+
 
 export default function KitchenScreen() {
   const { orders, currentUser, updateOrderStatus, systemSettings, updateSystemSettings, hasPermission, socket } = useApp();

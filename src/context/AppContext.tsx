@@ -48,7 +48,7 @@ interface AppContextType {
   addUser: (user: Omit<User, 'User_id'>) => void;
   updateUser: (user: User) => void;
   deleteUser: (userId: number) => void;
-socket?: any;
+  socket?: any;
   // Tables
   tables: DiningTable[];
   tableLayout: 'HORIZONTAL' | 'VERTICAL';
@@ -228,11 +228,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     (async () => {
       try {
         const savedUrl = await AsyncStorage.getItem(STORAGE_KEY_SERVER);
-        if (savedUrl && savedUrl.trim()) {
-          setServerUrlState(savedUrl.trim());
-        } else {
-          setServerUrlState('http://localhost:3000');
-        }
+        if (savedUrl) setServerUrlState(savedUrl);
 
         const savedUser = await AsyncStorage.getItem(STORAGE_KEY_USER);
         if (savedUser) {
