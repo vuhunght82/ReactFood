@@ -32,21 +32,22 @@ jobs:
           cd ios
           pod install
 
-      - name: Build Archive (Skip Code Signing)
+      - name: Build App (Skip Code Signing)
         run: |
           cd ios
-          xcodebuild archive \
-            -workspace ReactFood.xcworkspace \
+          xcodebuild -workspace ReactFood.xcworkspace \
             -scheme ReactFood \
             -configuration Release \
             -destination "generic/platform=iOS" \
-            -archivePath "build/ReactFood.xcarchive" \
+            -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+            CODE_SIGN_IDENTITY="" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            build
 
           mkdir -p build/Payload
-          cp -r "build/ReactFood.xcarchive/Products/Applications/ReactFood.app" build/Payload/
+          cp -r build/Build/Products/Release-iphoneos/ReactFood.app build/Payload/
           cd build
           zip -r -y ReactFood.ipa Payload
 
