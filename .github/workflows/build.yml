@@ -35,21 +35,18 @@ jobs:
       - name: Build Archive (Skip Code Signing)
         run: |
           cd ios
-          SCHEME_NAME=$(xcodebuild -list -json | python3 -c "import sys, json; print(json.load(sys.stdin)['workspace']['schemes'][0])")
-          echo "Using scheme: $SCHEME_NAME"
-          
           xcodebuild archive \
-            -workspace "${SCHEME_NAME}.xcworkspace" \
-            -scheme "$SCHEME_NAME" \
+            -workspace ReactFood.xcworkspace \
+            -scheme ReactFood \
             -configuration Release \
             -destination "generic/platform=iOS" \
-            -archivePath "build/${SCHEME_NAME}.xcarchive" \
+            -archivePath "build/ReactFood.xcarchive" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
 
           mkdir -p build/Payload
-          cp -r "build/${SCHEME_NAME}.xcarchive/Products/Applications/${SCHEME_NAME}.app" build/Payload/
+          cp -r "build/ReactFood.xcarchive/Products/Applications/ReactFood.app" build/Payload/
           cd build
           zip -r -y ReactFood.ipa Payload
 
