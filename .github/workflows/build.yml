@@ -1,94 +1,37 @@
-name: Build iOS IPA for Sideloadly
+name: Build iOS IPA
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-ios:
+  build:
     runs-on: macos-15
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Select Xcode 16
-        run: |
-          sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer
-          xcodebuild -version
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
 
-      - name: Install Project Dependencies
+      - name: Build & Package IPA
         run: |
+          sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
           npm ci || npm install
-
-      - name: Prebuild Native iOS Project
-        run: |
           npx expo prebuild --platform ios --clean
-
-      - name: Patch Xcode Project & Podfile
-        run: |
-          # 1. Tắt sandbox và signing trên file dự án Xcode gốc
-          sed -i '' 's/ENABLE_USER_SCRIPT_SANDBOXING = YES;/ENABLE_USER_SCRIPT_SANDBOXING = NO;/g' ios/ReactFood.xcodeproj/project.pbxproj || true
-
-          # 2. Can thiệp Podfile bằng script Ruby chuẩn để tắt toàn bộ kiểm tra chứng chỉ
-          ruby -e '
-            path = "ios/Podfile"
-            content = File.read(path)
-            injection = %(
-              installer.pods_project.targets.each do |target|
-                target.build_configurations.each do |config|
-                  config.build_settings["CODE_SIGNING_ALLOWED"] = "NO"
-                  config.build_settings["CODE_SIGNING_REQUIRED"] = "NO"
-                  config.build_settings["EXPANDED_CODE_SIGN_IDENTITY"] = ""
-                  config.build_settings["ENABLE_USER_SCRIPT_SANDBOXING"] = "NO"
-                end
-              end
-            )
-            if content.include?("post_install do |installer|")
-              content.sub!("post_install do |installer|", "post_install do |installer|\n" + injection)
-            else
-              content << "\npost_install do |installer|\n" + injection + "\nend\n"
-            end
-            File.write(path, content)
-          '
-
-      - name: Install CocoaPods
-        run: |
+          
           cd ios
+          # Tắt sandbox & code signing trực tiếp vào Podfile
+          sed -i '' 's/post_install do |installer|/post_install do |installer|\
+            installer.pods_project.targets.each { |t| t.build_configurations.each { |c| c.build_settings["CODE_SIGNING_ALLOWED"] = "NO"; c.build_settings["ENABLE_USER_SCRIPT_SANDBOXING"] = "NO" } }/g' Podfile
+          
           pod install
-
-      - name: Compile Unsigned iOS Binary
-        run: |
-          cd ios
-          xcodebuild build \
-            -workspace ReactFood.xcworkspace \
-            -scheme ReactFood \
-            -configuration Release \
-            -destination "generic/platform=iOS" \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGN_STYLE=Manual \
-            ENABLE_USER_SCRIPT_SANDBOXING=NO \
-            COMPILER_INDEX_STORE_ENABLE=NO
-
-      - name: Package IPA
-        run: |
-          cd ios
-          APP_PATH=$(find build/Build/Products/Release-iphoneos -name "*.app" -maxdepth 1 | head -n 1)
-          echo "Found app at: $APP_PATH"
-          mkdir -p build/Payload
-          cp -r "$APP_PATH" build/Payload/
-          cd build
+          
+          # Biên dịch và nén IPA
+          xcodebuild build -workspace ReactFood.xcworkspace -scheme ReactFood -configuration Release -destination "generic/platform=iOS" -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY=""
+          mkdir -p Payload && cp -r build/Build/Products/Release-iphoneos/*.app Payload/
           zip -r -y ReactFood.ipa Payload
 
-      - name: Upload IPA Artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: ReactFood-IPA
-          path: ios/build/ReactFood.ipa
+          path: ios/ReactFood.ipa
