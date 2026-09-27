@@ -27,10 +27,26 @@ jobs:
         run: |
           npx expo prebuild --platform ios --clean
 
+      - name: Disable Code Signing in Podfile & Project
+        run: |
+          # Bổ sung cấu hình ép tắt Code Signing cho TẤT CẢ các target pod con
+          cat << 'EOF' >> ios/Podfile
+
+          post_install do |installer|
+            installer.pods_project.targets.each do |target|
+              target.build_configurations.each do |config|
+                config.build_settings['EXPANDED_CODE_SIGN_IDENTITY'] = ""
+                config.build_settings['CODE_SIGNING_REQUIRED'] = "NO"
+                config.build_settings['CODE_SIGNING_ALLOWED'] = "NO"
+              end
+            end
+          end
+          EOF
+
       - name: Install CocoaPods
         run: |
           cd ios
-          pod install
+          pod install --repo-update
 
       - name: Build App (Skip Code Signing)
         run: |
@@ -43,7 +59,8 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            COMPILER_INDEX_STORE_ENABLE=NO \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            DEVELOPMENT_TEAM="" \
             build
 
           mkdir -p build/Payload
